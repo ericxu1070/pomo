@@ -1,0 +1,23 @@
+pkgname=pomo
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Keyboard-driven Pomodoro timer for Omarchy'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'libnotify')
+makedepends=('gcc' 'make')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/pomo "$pkgdir/usr/bin/pomo"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/pomo.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/pomo.svg"
+  install -Dm644 "$startdir/pomo.desktop" "$pkgdir/usr/share/applications/pomo.desktop"
+}

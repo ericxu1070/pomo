@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Pomo
+Name[da]=Pomo
+Comment=Pomodoro focus timer
+Comment[da]=Pomodoro-fokustimer
+Exec=pomo
+Icon=pomo
+Terminal=false
+Categories=Utility;
+StartupWMClass=pomo
