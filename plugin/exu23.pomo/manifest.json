@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "exu23.pomo",
+  "name": "Pomo",
+  "version": "1.0.0",
+  "author": "exu23",
+  "description": "The Pomo timer in the bar while the app is open: a progress ring and the time left.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Pomo",
+    "description": "Pomodoro progress ring and time left",
+    "category": "Time",
+    "allowMultiple": false
+  }
+}
