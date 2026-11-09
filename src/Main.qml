@@ -2,22 +2,27 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Shapes
 
 ApplicationWindow {
     id: win
-    width: 460
-    height: 520
-    minimumWidth: 360
-    minimumHeight: 420
+    width: 480
+    height: 600
+    minimumWidth: 440
+    minimumHeight: 480
     visible: true
     title: backend.running ? clock(backend.remaining) + " · Pomo" : "Pomo"
-    color: "#0e0e10"
+    color: pal.bg
+    font.family: pal.family
 
-    Material.theme: Material.Dark
+    Material.theme: theme.dark ? Material.Dark : Material.Light
     Material.accent: theme.accent
-    Material.roundedScale: theme.radius
 
-    property bool helpVisible: false
+    Pal { id: pal }
+
+    readonly property bool started: backend.remaining < backend.total
+    readonly property bool blocked: quitSheet.visible
+    property string lit: ""
 
     function clock(seconds) {
         const m = Math.floor(seconds / 60), s = seconds % 60
@@ -28,22 +33,41 @@ ApplicationWindow {
         return phase === "focus" ? qsTr("Focus") : phase === "short" ? qsTr("Short break") : qsTr("Long break")
     }
 
+    function nextLine() {
+        const minutes = Math.round(backend.nextTotal / 60)
+        return backend.nextPhase === "focus" ? qsTr("Focus next, %1 min").arg(minutes)
+             : backend.nextPhase === "short" ? qsTr("Short break next, %1 min").arg(minutes)
+             : qsTr("Long break next, %1 min").arg(minutes)
+    }
+
+    function press(key, action) {
+        lit = key
+        litTimer.restart()
+        action()
+    }
+
     function quit() {
-        if (backend.running) quitDialog.open()
+        if (backend.running) quitSheet.visible = true
         else Qt.quit()
     }
 
-    Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; onActivated: win.helpVisible = !win.helpVisible }
-    Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: win.helpVisible; onActivated: win.helpVisible = false }
-    Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; onActivated: win.quit() }
-    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; onActivated: backend.toggle() }
-    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; onActivated: backend.reset() }
-    Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; onActivated: backend.skip() }
+    Timer { id: litTimer; interval: 150; onTriggered: win.lit = "" }
+
+    Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("?", () => helpSheet.visible = !helpSheet.visible) }
+    Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: helpSheet.visible || quitSheet.visible; onActivated: helpSheet.visible = quitSheet.visible = false }
+    Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: quitSheet.visible; onActivated: Qt.quit() }
+    Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.quit() }
+    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("space", backend.toggle) }
+    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("r", backend.reset) }
+    Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("s", backend.skip) }
+    // = is + without Shift.
+    Shortcut { sequences: ["+", "="]; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("length", () => backend.adjust(5)) }
+    Shortcut { sequence: "-"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.press("length", () => backend.adjust(-5)) }
 
     onClosing: (close) => {
         if (backend.running) {
             close.accepted = false
-            quitDialog.open()
+            quitSheet.visible = true
         }
     }
 
@@ -57,174 +81,179 @@ ApplicationWindow {
         ColumnLayout {
             anchors.centerIn: parent
             width: parent.width - 48
-            spacing: 18
+            spacing: 0
 
-            Label {
+            Txt {
                 Layout.alignment: Qt.AlignHCenter
+                role: "title2"
                 text: win.phaseName(backend.phase)
-                font.pixelSize: 22
-                color: backend.phase === "focus" ? theme.accent : "#c8c8cc"
             }
 
             Item {
                 id: dial
                 Layout.alignment: Qt.AlignHCenter
-                readonly property int size: Math.min(win.width - 80, win.height - 220)
+                Layout.topMargin: 24
+                readonly property int size: Math.max(160, Math.min(win.width - 120, win.height - 320))
+                readonly property real progress: backend.total > 0 ? 1 - backend.remaining / backend.total : 0
                 Layout.preferredWidth: size
                 Layout.preferredHeight: size
 
-                Canvas {
-                    id: ring
+                Shape {
                     anchors.fill: parent
-                    readonly property real progress: backend.total > 0 ? 1 - backend.remaining / backend.total : 0
-                    readonly property string accent: theme.accent
-                    onProgressChanged: requestPaint()
-                    onAccentChanged: requestPaint()
-                    onWidthChanged: requestPaint()
-                    onPaint: {
-                        const ctx = getContext("2d")
-                        ctx.reset()
-                        const r = width / 2 - 8
-                        ctx.lineWidth = 8
-                        ctx.strokeStyle = "#26262b"
-                        ctx.beginPath()
-                        ctx.arc(width / 2, height / 2, r, 0, 2 * Math.PI)
-                        ctx.stroke()
-                        if (progress > 0) {
-                            ctx.strokeStyle = accent
-                            ctx.lineCap = "round"
-                            ctx.beginPath()
-                            ctx.arc(width / 2, height / 2, r, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI)
-                            ctx.stroke()
+                    preferredRendererType: Shape.CurveRenderer
+
+                    ShapePath {
+                        strokeColor: pal.fillPressed
+                        strokeWidth: 6
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: dial.size / 2; centerY: dial.size / 2
+                            radiusX: dial.size / 2 - 3; radiusY: radiusX
+                            sweepAngle: 360
+                        }
+                    }
+                    ShapePath {
+                        strokeColor: pal.tint
+                        strokeWidth: 6
+                        capStyle: ShapePath.RoundCap
+                        fillColor: "transparent"
+                        PathAngleArc {
+                            centerX: dial.size / 2; centerY: dial.size / 2
+                            radiusX: dial.size / 2 - 3; radiusY: radiusX
+                            startAngle: -90
+                            sweepAngle: 360 * dial.progress
                         }
                     }
                 }
 
-                Column {
+                Txt {
+                    id: readout
                     anchors.centerIn: parent
-                    spacing: 4
+                    text: win.clock(backend.remaining)
+                    font.pixelSize: Math.round(dial.size / 4.2)
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: -0.02 * dial.size / 4.2
+                    font.features: { "tnum": 1 }
+                }
+                Txt {
+                    anchors.top: readout.bottom
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: !backend.running && win.started
+                    role: "callout"
+                    text: qsTr("Paused")
+                    color: pal.labelSecondary
+                }
+            }
 
-                    Label {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: win.clock(backend.remaining)
-                        font.pixelSize: Math.max(24, Math.round(dial.size / 4.5))
-                        font.weight: Font.Light
-                        font.features: { "tnum": 1 }
-                        color: "white"
-                    }
-                    Label {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: backend.running ? qsTr("Space to pause")
-                              : backend.remaining < backend.total ? qsTr("Paused") : qsTr("Space to start")
-                        color: "#8a8a90"
-                        font.pixelSize: 14
+            // One pill per focus session in the set of four; the current one fills as it runs.
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 24
+                spacing: 6
+                Repeater {
+                    model: 4
+                    Rectangle {
+                        width: 32; height: 4; radius: 2
+                        color: pal.fillPressed
+                        Rectangle {
+                            height: 4; radius: 2
+                            color: pal.tint
+                            width: parent.width * (index < backend.cycleDone ? 1
+                                   : index === backend.cycleDone && backend.phase === "focus" ? dial.progress : 0)
+                        }
                     }
                 }
             }
 
-            Label {
+            Row {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("%n sessions today", "", backend.completedToday)
-                color: "#c8c8cc"
-                font.pixelSize: 15
+                Layout.topMargin: 12
+                Txt { role: "headline"; text: qsTr("Session %1 of %2").arg(backend.session).arg(4) }
+                Txt { text: " · " + win.nextLine(); color: pal.labelSecondary }
             }
 
-            Label {
+            Txt {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 4
+                role: "callout"
+                text: qsTr("%n sessions today", "", backend.completedToday)
+                color: pal.labelSecondary
+            }
+
+            Item {
                 Layout.fillWidth: true
+                Layout.topMargin: 32
+                implicitHeight: hints.implicitHeight
+              Row {
+                id: hints
+                anchors.centerIn: parent
+                spacing: 16
+                // Longer languages shrink the row instead of running off the window.
+                scale: Math.min(1, parent.width / implicitWidth)
+                Keycap {
+                    keys: ["Space"]
+                    lit: win.lit === "space"
+                    label: backend.running ? qsTr("Pause") : win.started ? qsTr("Resume") : qsTr("Start")
+                }
+                Keycap { keys: ["R"]; lit: win.lit === "r"; label: qsTr("Reset"); enabled: win.started }
+                Keycap { keys: ["S"]; lit: win.lit === "s"; label: qsTr("Skip") }
+                Keycap { keys: ["−", "+"]; lit: win.lit === "length"; label: qsTr("Length"); enabled: !backend.running }
+                Keycap { keys: ["?"]; lit: win.lit === "?" }
+              }
+            }
+
+            Txt {
+                Layout.fillWidth: true
+                Layout.topMargin: 16
                 visible: backend.error !== ""
+                role: "callout"
                 text: backend.error
-                color: "#ff6b6b"
+                color: pal.danger
                 wrapMode: Text.WordWrap
                 horizontalAlignment: Text.AlignHCenter
             }
         }
 
-        Label {
-            anchors.bottom: parent.bottom
-            anchors.right: parent.right
-            anchors.margins: 14
-            text: qsTr("? for shortcuts")
-            color: "#5a5a60"
-            font.pixelSize: 12
-        }
+        Sheet {
+            id: helpSheet
+            onDismissed: visible = false
 
-        // Every shortcut, toggled with ?.
-        Rectangle {
-            anchors.fill: parent
-            visible: win.helpVisible
-            color: "#e00e0e10"
+            Txt { role: "title3"; text: qsTr("Keyboard shortcuts") }
 
-            MouseArea { anchors.fill: parent; onClicked: win.helpVisible = false }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: Math.min(parent.width - 32, 360)
-                height: helpColumn.implicitHeight + 40
-                radius: theme.radius
-                color: "#1a1a1e"
-                border.color: "#2e2e34"
-
-                ColumnLayout {
-                    id: helpColumn
-                    anchors.fill: parent
-                    anchors.margins: 20
-                    spacing: 10
-
-                    Label { text: qsTr("Keyboard shortcuts"); font.pixelSize: 17; color: "white" }
-
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: 18
-                        rowSpacing: 8
-                        Repeater {
-                            model: [
-                                ["Space", qsTr("Start or pause")],
-                                ["R", qsTr("Reset this timer")],
-                                ["S", qsTr("Skip to the next phase")],
-                                ["?", qsTr("Show or hide shortcuts")],
-                                ["Q", qsTr("Quit")]
-                            ]
-                            delegate: RowLayout {
-                                Layout.columnSpan: 2
-                                spacing: 18
-                                Rectangle {
-                                    Layout.preferredWidth: 64
-                                    Layout.preferredHeight: 26
-                                    radius: Math.min(4, theme.radius)
-                                    color: "#2a2a30"
-                                    Label { anchors.centerIn: parent; text: modelData[0]; color: theme.accent }
-                                }
-                                Label { text: modelData[1]; color: "#c8c8cc"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-                            }
-                        }
+            Column {
+                width: parent.width
+                spacing: 8
+                Repeater {
+                    model: [
+                        [["Space"], qsTr("Start or pause")],
+                        [["R"], qsTr("Reset this timer")],
+                        [["S"], qsTr("Skip to the next phase")],
+                        [["−", "+"], qsTr("Change the length by 5 min")],
+                        [["?"], qsTr("Show or hide shortcuts")],
+                        [["Q"], qsTr("Quit")]
+                    ]
+                    Item {
+                        width: parent.width
+                        height: 24
+                        Txt { anchors.verticalCenter: parent.verticalCenter; text: modelData[1] }
+                        Keycap { anchors.right: parent.right; keys: modelData[0] }
                     }
                 }
             }
         }
-    }
 
-    Dialog {
-        id: quitDialog
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Quit while the timer runs?")
-        Material.roundedScale: theme.radius
-        background: Rectangle { color: "#1a1a1e"; radius: theme.radius; border.color: "#2e2e34" }
-        Overlay.modal: Rectangle { color: "#c00e0e10" }
-        header: Label {
-            text: quitDialog.title
-            padding: 24
-            bottomPadding: 0
-            font.pixelSize: 18
-            color: "white"
-            wrapMode: Text.WordWrap
+        Sheet {
+            id: quitSheet
+            onDismissed: visible = false
+
+            Txt { role: "title3"; text: qsTr("Quit while the timer runs?"); width: parent.width; wrapMode: Text.WordWrap }
+            Txt { text: qsTr("The current session won't be counted."); color: pal.labelSecondary; width: parent.width; wrapMode: Text.WordWrap }
+            Row {
+                anchors.right: parent.right
+                spacing: 16
+                Keycap { keys: ["Esc"]; label: qsTr("Keep going") }
+                Keycap { keys: ["Enter"]; label: qsTr("Quit") }
+            }
         }
-        Label { text: qsTr("The current session won't be counted."); wrapMode: Text.WordWrap; width: 280 }
-        footer: DialogButtonBox {
-            background: null
-            Button { text: qsTr("Keep going"); flat: true; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-            Button { text: qsTr("Quit"); flat: true; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-        }
-        onAccepted: Qt.quit()
     }
 }
