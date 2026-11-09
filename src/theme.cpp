@@ -61,16 +61,19 @@ void Theme::refreshRounding() {
     m_roundingTimeout.start();
 }
 
-QString Theme::readAccent(const QString &path) {
+QVariantMap Theme::readColors(const QString &path) {
+    QVariantMap colors;
     QFile file(path);
-    if (file.open(QIODevice::ReadOnly)) {
-        const QRegularExpression expression(R"re(^\s*accent\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
-                                            QRegularExpression::MultilineOption);
-        const auto match = expression.match(QString::fromUtf8(file.readAll()));
-        if (match.hasMatch())
-            return match.captured(1);
+    if (!file.open(QIODevice::ReadOnly))
+        return colors;
+    const QRegularExpression line(R"re(^\s*([a-z_0-9]+)\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
+                                  QRegularExpression::MultilineOption);
+    auto it = line.globalMatch(QString::fromUtf8(file.readAll()));
+    while (it.hasNext()) {
+        const auto m = it.next();
+        colors.insert(m.captured(1), m.captured(2));
     }
-    return "#FFD60A";
+    return colors;
 }
 
 // Black or white, whichever reads on the accent (WCAG relative luminance).
@@ -100,9 +103,18 @@ void Theme::reload() {
         if (QFileInfo::exists(path))
             m_watcher.addPath(path);
 
-    const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
+    const QString path = m_directory + "/theme/colors.toml";
+    const auto colors = readColors(path);
+    const auto accent = colors.value("accent", "#FFD60A").toString();
+    // mode is a bare word, not a hex color, so readColors skips it.
+    bool dark = true;
+    if (QFile file(path); file.open(QIODevice::ReadOnly))
+        dark = !QRegularExpression(R"re(^\s*mode\s*=\s*["']light["'])re", QRegularExpression::MultilineOption)
+                    .match(QString::fromUtf8(file.readAll())).hasMatch();
+    if (accent != m_accent || colors != m_colors || dark != m_dark) {
         m_accent = accent;
+        m_colors = colors;
+        m_dark = dark;
         emit changed();
     }
 }

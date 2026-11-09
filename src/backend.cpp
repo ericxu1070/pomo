@@ -1,25 +1,39 @@
 #include "backend.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QSaveFile>
 #include <QStandardPaths>
 
 Backend::Backend(const QString &statePath, const QString &notifier, int focus, int shortBreak, int longBreak,
-                 QObject *parent)
+                 const QString &statusPath, QObject *parent)
     : QObject(parent),
       m_statePath(statePath.isEmpty() ? QDir::homePath() + "/.local/state/pomo/today" : statePath),
       m_notifier(notifier.isEmpty() ? QStandardPaths::findExecutable("notify-send") : notifier),
-      m_focus(focus), m_short(shortBreak), m_long(longBreak) {
+      m_length{{"focus", focus}, {"short", shortBreak}, {"long", longBreak}} {
+    if (!statusPath.isEmpty())
+        m_statusPath = statusPath;
+    else if (!statePath.isEmpty())
+        m_statusPath = QFileInfo(statePath).absolutePath() + "/status.json";
+    else if (const QString runtime = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation); !runtime.isEmpty())
+        m_statusPath = runtime + "/pomo/status.json";
     if (m_notifier.isEmpty())
         m_error = tr("notify-send is missing, so Pomo can't notify you when a timer ends. Install libnotify.");
-    m_leftMs = qint64(m_focus) * 1000;
+    m_leftMs = qint64(total()) * 1000;
     m_ticker.setInterval(200);
     connect(&m_ticker, &QTimer::timeout, this, &Backend::tick);
     load();
+    writeStatus();
+}
+
+Backend::~Backend() {
+    QFile::remove(m_statusPath);
 }
 
 int Backend::remaining() const {
@@ -29,7 +43,26 @@ int Backend::remaining() const {
 }
 
 int Backend::total() const {
-    return m_phase == "focus" ? m_focus : m_phase == "short" ? m_short : m_long;
+    return m_length.value(m_phase);
+}
+
+// The one rule for what follows the current phase, so the line the window
+// shows is exactly what finish() and skip() do.
+QString Backend::nextPhase() const {
+    if (m_phase != "focus")
+        return "focus";
+    return (completedToday() + 1) % 4 == 0 ? "long" : "short";
+}
+
+int Backend::cycleDone() const {
+    const int done = completedToday();
+    if (m_phase == "focus")
+        return done % 4;
+    return done == 0 ? 0 : (done - 1) % 4 + 1;
+}
+
+int Backend::session() const {
+    return m_phase == "focus" ? cycleDone() + 1 : qMax(1, cycleDone());
 }
 
 // A count saved yesterday doesn't belong to today.
@@ -47,6 +80,7 @@ void Backend::toggle() {
         m_deadline = now + m_leftMs;
         m_ticker.start();
     }
+    writeStatus();
     emit changed();
 }
 
@@ -54,15 +88,27 @@ void Backend::reset() {
     m_deadline = 0;
     m_ticker.stop();
     m_leftMs = qint64(total()) * 1000;
+    writeStatus();
+    emit changed();
+}
+
+// Changes this run's length for the current phase, only while paused.
+void Backend::adjust(int minutes) {
+    if (running())
+        return;
+    const int length = qBound(60, total() + minutes * 60, 180 * 60);
+    const qint64 left = m_leftMs + qint64(length - total()) * 1000;
+    if (left <= 0)
+        return;
+    m_length[m_phase] = length;
+    m_leftMs = left;
+    writeStatus();
     emit changed();
 }
 
 // Skipping moves on without counting the session or sending a notification.
 void Backend::skip() {
-    if (m_phase != "focus")
-        enter("focus");
-    else
-        enter(completedToday() > 0 && completedToday() % 4 == 0 ? "long" : "short");
+    enter(nextPhase());
 }
 
 void Backend::tick() {
@@ -74,16 +120,16 @@ void Backend::tick() {
 
 void Backend::finish() {
     QString message;
+    const QString next = nextPhase();   // Before the count moves.
     if (m_phase == "focus") {
         m_completed = completedToday() + 1;
         m_day = QDate::currentDate();
         save();
         message = tr("Focus done. Take a break.");
-        enter(m_completed % 4 == 0 ? "long" : "short");
     } else {
         message = tr("Break over. Back to focus.");
-        enter("focus");
     }
+    enter(next);
     if (!m_notifier.isEmpty() && !QProcess::startDetached(m_notifier, {"-a", "Pomo", "-i", "pomo", "Pomo", message})) {
         m_error = tr("Couldn't run %1 to send a notification.").arg(m_notifier);
         emit changed();
@@ -96,6 +142,7 @@ void Backend::enter(const QString &phase) {
     m_deadline = 0;
     m_ticker.stop();
     m_leftMs = qint64(total()) * 1000;
+    writeStatus();
     emit changed();
 }
 
@@ -120,4 +167,26 @@ void Backend::save() {
             return;
     }
     m_error = tr("Couldn't save today's sessions to %1.").arg(m_statePath);
+}
+
+// For the bar widget. Failing silently is fine, it only mirrors what the window shows.
+void Backend::writeStatus() {
+    if (m_statusPath.isEmpty())
+        return;
+    QDir().mkpath(QFileInfo(m_statusPath).absolutePath());
+    QSaveFile file(m_statusPath);
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    const QJsonObject status{{"phase", m_phase},
+                             {"running", running()},
+                             {"deadlineMs", m_deadline},
+                             {"leftMs", running() ? m_deadline - QDateTime::currentMSecsSinceEpoch() : m_leftMs},
+                             {"totalMs", qint64(total()) * 1000},
+                             {"session", session()},
+                             {"cycleDone", cycleDone()},
+                             {"completedToday", completedToday()},
+                             // A killed app never deletes the file, so the widget checks this is alive.
+                             {"pid", QCoreApplication::applicationPid()}};
+    file.write(QJsonDocument(status).toJson(QJsonDocument::Compact));
+    file.commit();
 }
