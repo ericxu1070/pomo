@@ -25,9 +25,10 @@ public:
     // Empty statePath and notifier mean ~/.local/state/pomo/today and
     // notify-send from PATH. Durations are in seconds. Empty statusPath means
     // $XDG_RUNTIME_DIR/pomo/status.json, or status.json beside a given statePath.
+    // Empty player means pw-play from PATH; without one, timers end silently.
     explicit Backend(const QString &statePath = {}, const QString &notifier = {}, int focus = 25 * 60,
                      int shortBreak = 5 * 60, int longBreak = 15 * 60, const QString &statusPath = {},
-                     QObject *parent = nullptr);
+                     const QString &player = {}, QObject *parent = nullptr);
     ~Backend() override;
 
     QString phase() const { return m_phase; }
@@ -60,6 +61,7 @@ private:
     QString m_statePath;
     QString m_statusPath;
     QString m_notifier;
+    QString m_player;
     QHash<QString, int> m_length;   // Seconds per phase: focus, short, long.
     QString m_phase = "focus";
     qint64 m_deadline = 0;   // Epoch ms while running, 0 while paused.

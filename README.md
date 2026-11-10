@@ -4,7 +4,7 @@
 
 A keyboard-driven Pomodoro timer for [Omarchy](https://omarchy.org). 25 minutes of focus,
 then a 5 minute break, with a 15 minute break after every fourth session. It follows the
-Omarchy theme accent and language live, sends a desktop notification when a timer ends,
+Omarchy theme accent and language live, sends a desktop notification and plays a chime when a timer ends,
 and counts the focus sessions you finish each day. The window shows where you are in
 the set of four and what comes next, and its colors follow the whole Omarchy theme,
 light themes included.

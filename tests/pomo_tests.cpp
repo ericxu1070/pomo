@@ -16,7 +16,7 @@ private slots:
     void focusCountsAndMovesToBreak()
     {
         QTemporaryDir dir;
-        Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3);
+        Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3, {}, "/usr/bin/true");
         QCOMPARE(backend.phase(), QString("focus"));
         QCOMPARE(backend.remaining(), 1);
         backend.toggle();
@@ -43,7 +43,7 @@ private slots:
     {
         QTemporaryDir dir;
         write(dir.path() + "/today", QDate::currentDate().toString(Qt::ISODate).toUtf8() + " 3\n");
-        Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3);
+        Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3, {}, "/usr/bin/true");
         backend.toggle();
         QTRY_COMPARE(backend.phase(), QString("long"));
         QCOMPARE(backend.completedToday(), 4);
@@ -62,6 +62,18 @@ private slots:
         QCOMPARE(backend.completedToday(), 0);
         backend.skip();
         QCOMPARE(backend.phase(), QString("focus"));
+    }
+
+    void finishPlaysSound()
+    {
+        QTemporaryDir dir;
+        const QString player = dir.path() + "/player", played = dir.path() + "/played";
+        write(player, "#!/bin/sh\necho \"$@\" > '" + played.toUtf8() + "'\n");
+        QFile::setPermissions(player, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3, {}, player);
+        backend.toggle();
+        const auto args = [&] { QFile file(played); return file.open(QIODevice::ReadOnly) ? file.readAll().trimmed() : QByteArray(); };
+        QTRY_VERIFY(args().endsWith("alarm-clock-elapsed.oga"));
     }
 
     void missingNotifierIsReported()
@@ -84,7 +96,7 @@ private slots:
             QTemporaryDir dir;
             if (row.done > 0)
                 write(dir.path() + "/today", QDate::currentDate().toString(Qt::ISODate).toUtf8() + " " + QByteArray::number(row.done) + "\n");
-            Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3);
+            Backend backend(dir.path() + "/today", "/usr/bin/true", 1, 2, 3, {}, "/usr/bin/true");
             QCOMPARE(backend.nextPhase(), QString(row.next));
             QCOMPARE(backend.nextTotal(), backend.nextPhase() == "long" ? 3 : 2);
             QCOMPARE(backend.cycleDone(), row.focusCycle);

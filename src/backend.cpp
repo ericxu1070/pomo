@@ -12,10 +12,11 @@
 #include <QStandardPaths>
 
 Backend::Backend(const QString &statePath, const QString &notifier, int focus, int shortBreak, int longBreak,
-                 const QString &statusPath, QObject *parent)
+                 const QString &statusPath, const QString &player, QObject *parent)
     : QObject(parent),
       m_statePath(statePath.isEmpty() ? QDir::homePath() + "/.local/state/pomo/today" : statePath),
       m_notifier(notifier.isEmpty() ? QStandardPaths::findExecutable("notify-send") : notifier),
+      m_player(player.isEmpty() ? QStandardPaths::findExecutable("pw-play") : player),
       m_length{{"focus", focus}, {"short", shortBreak}, {"long", longBreak}} {
     if (!statusPath.isEmpty())
         m_statusPath = statusPath;
@@ -130,6 +131,8 @@ void Backend::finish() {
         message = tr("Break over. Back to focus.");
     }
     enter(next);
+    if (!m_player.isEmpty())
+        QProcess::startDetached(m_player, {"/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"});
     if (!m_notifier.isEmpty() && !QProcess::startDetached(m_notifier, {"-a", "Pomo", "-i", "pomo", "Pomo", message})) {
         m_error = tr("Couldn't run %1 to send a notification.").arg(m_notifier);
         emit changed();
